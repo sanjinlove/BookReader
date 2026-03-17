@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     name: 📱 构建 IPA
-    # 🌟 关键：退回 macos-14，使用极其稳定的 Xcode 15.4
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -21,21 +20,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: 🔧 强制降级到稳定的 Expo 51 (避开新版的所有 Bug)
+      - name: 🔧 强制降级到稳定的 Expo 51 (彻底解决依赖冲突)
         run: |
-          # 自动修改 package.json 中的版本号
+          # 连同 React 一起降级
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json'));
             pkg.dependencies['expo'] = '~51.0.28';
             pkg.dependencies['react-native'] = '0.74.5';
+            pkg.dependencies['react'] = '18.2.0';
+            pkg.dependencies['react-dom'] = '18.2.0';
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
-          # 清除所有可能的缓存干扰
           rm -rf package-lock.json node_modules ios
-          npm install
           
-          # 让 expo 自动把其他所有插件对齐到 51 兼容的版本
+          # 加上 --legacy-peer-deps 强行无视警告安装
+          npm install --legacy-peer-deps
+          
+          # 让 expo 自动对齐剩余插件
           npx expo install --fix
 
       - name: 🔧 生成 iOS 原生工程
