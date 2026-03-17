@@ -1,6 +1,5 @@
 name: Build Unsigned IPA
 
-# 触发条件：推送到 main 分支，或手动触发
 on:
   push:
     branches: [main]
@@ -9,7 +8,7 @@ on:
 jobs:
   build:
     name: 📱 构建 IPA
-    runs-on: macos-14     # GitHub 免费提供的 macOS 虚拟机
+    runs-on: macos-15          # ← 就改这一行，14 改成 15
     timeout-minutes: 60
 
     steps:
