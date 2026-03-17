@@ -20,16 +20,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: 📦 清理缓存并安装依赖
+      - name: 📦 安装依赖并修复 Expo
         run: |
-          npm cache clean --force
+          # 删掉了清空缓存的命令，直接安装，防断网
           npm install
-
-      - name: 🔧 修复 Expo 依赖兼容性
-        run: |
+          
           # 强制更新 expo 以兼容 Xcode 16
-          npx expo install --fix
           npm install expo@latest
+          npx expo install --fix
 
       - name: 🔧 生成 iOS 原生工程
         run: |
@@ -38,7 +36,6 @@ jobs:
       - name: 📦 安装 CocoaPods
         run: |
           cd ios
-          # 更新 Pod repo 确保拿到最新的修复
           pod install --repo-update
 
       - name: 🔍 查看环境版本
