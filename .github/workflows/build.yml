@@ -35,34 +35,68 @@ jobs:
       - name: 🔍 查看 Xcode 版本
         run: |
           xcodebuild -version
-          xcode-select -p  # ✅ 这里已修复
+          xcode-select -p
 
-      # ========================
-      # 标准构建流程
-      # ========================
-      - name: 🏗️ Archive 构建
+      - name: 🏗️ 编译
         run: |
+          set -eo pipefail
           cd ios
-          xcodebuild archive -workspace BookReader.xcworkspace \
+
+          # 先尝试 archive 方式
+          xcodebuild archive \
+            -workspace BookReader.xcworkspace \
             -scheme BookReader \
             -configuration Release \
             -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -archivePath build/BookReader.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM=""
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee ../build.log
 
       - name: 📦 打包 IPA
         run: |
+          set -eo pipefail
           cd ios
-          APP_PATH="build/BookReader.xcarchive/Products/Applications/BookReader.app"
-          echo "✅ 找到 App: $APP_PATH"
 
-          # 打包标准 IPA
+          APP_PATH="build/BookReader.xcarchive/Products/Applications/BookReader.app"
+
+          # 验证 .app 存在
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ 找不到 BookReader.app"
+            echo "尝试搜索："
+            find build -name "*.app" -type d 2>/dev/null || echo "完全没有 .app"
+            echo ""
+            echo "===== 编译日志最后 50 行 ====="
+            tail -50 ../build.log
+            exit 1
+          fi
+
+          # 验证 Info.plist
+          if [ ! -f "$APP_PATH/Info.plist" ]; then
+            echo "❌ Info.plist 不存在"
+            ls -la "$APP_PATH/"
+            exit 1
+          fi
+
+          echo "✅ 找到 App: $APP_PATH"
+          ls -lh "$APP_PATH/"
+
+          # 打包 IPA
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           zip -ry BookReader.ipa Payload/
           mv BookReader.ipa ../
+
+          echo "✅ IPA 大小："
+          ls -lh ../BookReader.ipa
+
+      - name: 📋 失败时显示日志
+        if: failure()
+        run: |
+          echo "===== 编译日志最后 150 行 ====="
+          tail -150 build.log 2>/dev/null || echo "没有日志"
 
       - name: 📤 上传 IPA
         uses: actions/upload-artifact@v4
