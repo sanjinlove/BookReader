@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     name: 📱 构建 IPA
-    runs-on: macos-15          # ← 就改这一行，14 改成 15
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
@@ -32,28 +32,83 @@ jobs:
           cd ios
           pod install --repo-update
 
+      - name: 🔍 查看 Xcode 版本
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
       - name: 🏗️ 编译（不签名）
         run: |
+          set -eo pipefail
           cd ios
+
           xcodebuild build \
             -workspace BookReader.xcworkspace \
             -scheme BookReader \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
+            -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            | tail -20
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee ../build.log
+
+          echo "✅ 编译完成"
+
+      - name: 🔍 查找编译产物
+        if: always()
+        run: |
+          echo "===== 查找所有 .app ====="
+          find ios/build -name "*.app" -type d 2>/dev/null || echo "没找到 .app"
+
+          echo ""
+          echo "===== build 目录结构 ====="
+          find ios/build -type d -maxdepth 5 2>/dev/null || echo "build 目录不存在"
 
       - name: 📦 打包 IPA
         run: |
+          set -eo pipefail
           cd ios
+
+          # 自动查找 .app 路径
+          APP_PATH=$(find build -name "BookReader.app" -type d | head -1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ 编译失败：找不到 BookReader.app"
+            echo ""
+            echo "===== 编译日志最后 100 行 ====="
+            tail -100 ../build.log
+            exit 1
+          fi
+
+          echo "✅ 找到 App: $APP_PATH"
+          echo "📁 App 内容："
+          ls -la "$APP_PATH/"
+
+          # 验证 Info.plist 存在
+          if [ ! -f "$APP_PATH/Info.plist" ]; then
+            echo "❌ Info.plist 不存在！"
+            exit 1
+          fi
+
+          echo "✅ Info.plist 存在"
+
+          # 打包 IPA
           mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/BookReader.app Payload/
+          cp -r "$APP_PATH" Payload/
           zip -r ../BookReader.ipa Payload/
-          echo "✅ IPA 大小："
+
+          echo ""
+          echo "✅ IPA 打包成功！"
           ls -lh ../BookReader.ipa
+
+      - name: 📋 编译失败时显示日志
+        if: failure()
+        run: |
+          echo "===== 完整编译日志最后 200 行 ====="
+          tail -200 build.log 2>/dev/null || echo "没有日志文件"
 
       - name: 📤 上传 IPA
         uses: actions/upload-artifact@v4
@@ -61,3 +116,11 @@ jobs:
           name: BookReader-IPA
           path: BookReader.ipa
           retention-days: 90
+
+      - name: 📤 上传编译日志（调试用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
