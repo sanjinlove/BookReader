@@ -19,25 +19,38 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      - name: 📦 安装依赖
-        run: npm ci
+      - name: 📦 清理缓存并安装依赖
+        run: |
+          npm cache clean --force
+          npm install
+
+      - name: 🔧 修复 Expo 依赖兼容性
+        run: |
+          # 强制更新 expo 以兼容 Xcode 16
+          npx expo install --fix
+          npm install expo@latest
 
       - name: 🔧 生成 iOS 原生工程
-        run: npx expo prebuild --platform ios --clean --no-install
+        run: |
+          npx expo prebuild --platform ios --clean --no-install
 
       - name: 📦 安装 CocoaPods
         run: |
           cd ios
+          # 更新 Pod repo 确保拿到最新的修复
           pod install --repo-update
+
+      - name: 🔍 查看环境版本
+        run: |
+          xcodebuild -version
+          npm view expo version
 
       - name: 🏗️ 编译 (使用 DerivedData 避免破坏模块路径)
         run: |
           set -eo pipefail
           cd ios
 
-          # 使用 -derivedDataPath 指定完整的构建沙盒，避免打乱 Pods 的相对路径
           xcodebuild build \
             -workspace BookReader.xcworkspace \
             -scheme BookReader \
@@ -56,7 +69,6 @@ jobs:
           set -eo pipefail
           cd ios
 
-          # 现在的路径在我们指定的 derived_data 里面
           APP_PATH="derived_data/Build/Products/Release-iphoneos/BookReader.app"
 
           if [ ! -d "$APP_PATH" ]; then
