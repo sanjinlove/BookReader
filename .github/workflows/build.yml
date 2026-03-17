@@ -8,51 +8,38 @@ on:
 jobs:
   build:
     name: 📱 构建 IPA
-    runs-on: macos-15
+    # 🌟 关键：退回 macos-14，使用极其稳定的 Xcode 15.4
+    runs-on: macos-14
     timeout-minutes: 60
 
     steps:
       - name: 📥 拉取代码
         uses: actions/checkout@v4
 
-      # ====== 关键修复：切换到兼容的 Xcode 版本 ======
-      - name: 🔧 选择 Xcode 16.1（避免 16.4 的 Swift 6.1 兼容问题）
-        run: |
-          echo "📋 所有可用的 Xcode 版本："
-          ls -d /Applications/Xcode*.app
-
-          # 按优先级选择：16.1 > 16.2 > 16.3（不要 16.4）
-          for ver in 16.1 16.2 16.3; do
-            APP="/Applications/Xcode_${ver}.app"
-            if [ -d "$APP" ]; then
-              sudo xcode-select -s "$APP/Contents/Developer"
-              echo "✅ 已切换到 Xcode ${ver}"
-              break
-            fi
-          done
-
-          echo ""
-          echo "当前 Xcode 版本："
-          xcodebuild -version
-          swift --version
-
       - name: 📦 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 📦 安装依赖
+      - name: 🔧 强制降级到稳定的 Expo 51 (避开新版的所有 Bug)
         run: |
-          # 删除旧锁文件，确保拉到兼容版本
-          rm -f package-lock.json
+          # 自动修改 package.json 中的版本号
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json'));
+            pkg.dependencies['expo'] = '~51.0.28';
+            pkg.dependencies['react-native'] = '0.74.5';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+          # 清除所有可能的缓存干扰
+          rm -rf package-lock.json node_modules ios
           npm install
-          npm install expo@latest
+          
+          # 让 expo 自动把其他所有插件对齐到 51 兼容的版本
           npx expo install --fix
 
       - name: 🔧 生成 iOS 原生工程
         run: |
-          # 清掉旧的 ios 目录重新生成
-          rm -rf ios
           npx expo prebuild --platform ios --clean --no-install
 
       - name: 📦 安装 CocoaPods
@@ -60,7 +47,7 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: 🏗️ 编译
+      - name: 🏗️ 编译 (Xcode 15.4 稳定环境)
         run: |
           set -eo pipefail
           cd ios
@@ -76,7 +63,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            SWIFT_STRICT_CONCURRENCY=minimal \
             2>&1 | tee ../build.log
 
       - name: 📦 打包 IPA
@@ -87,9 +73,7 @@ jobs:
           APP_PATH="derived_data/Build/Products/Release-iphoneos/BookReader.app"
 
           if [ ! -d "$APP_PATH" ]; then
-            echo "❌ 找不到 BookReader.app，正在搜索..."
-            find derived_data -name "*.app" -type d 2>/dev/null
-            tail -50 ../build.log
+            echo "❌ 找不到 BookReader.app，编译可能还是失败了"
             exit 1
           fi
 
@@ -100,6 +84,7 @@ jobs:
 
           echo "✅ 找到 App: $APP_PATH"
 
+          # 执行打包
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           zip -ry BookReader.ipa Payload/
@@ -107,19 +92,6 @@ jobs:
 
           echo "✅ IPA 打包成功！大小："
           ls -lh ../BookReader.ipa
-
-      - name: 📋 失败时显示日志
-        if: failure()
-        run: |
-          if [ -f build.log ]; then
-            echo "===== 搜索 Swift 编译错误 ====="
-            grep -n "error:" build.log | head -30
-            echo ""
-            echo "===== 日志末尾 ====="
-            tail -100 build.log
-          else
-            echo "没有编译日志"
-          fi
 
       - name: 📤 上传 IPA
         uses: actions/upload-artifact@v4
