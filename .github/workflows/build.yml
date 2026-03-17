@@ -37,20 +37,21 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
-      - name: 🏗️ 编译
+      - name: 🏗️ 编译 (Build 模式，绕过强制签名)
         run: |
           set -eo pipefail
           cd ios
 
-          # 先尝试 archive 方式
-          xcodebuild archive \
+          # 使用 build 而不是 archive，并明确指定输出目录为 build/Release-iphoneos
+          xcodebuild build \
             -workspace BookReader.xcworkspace \
             -scheme BookReader \
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath build/BookReader.xcarchive \
+            CONFIGURATION_BUILD_DIR=$(pwd)/build/Release-iphoneos \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             2>&1 | tee ../build.log
@@ -60,7 +61,8 @@ jobs:
           set -eo pipefail
           cd ios
 
-          APP_PATH="build/BookReader.xcarchive/Products/Applications/BookReader.app"
+          # 根据上面的 CONFIGURATION_BUILD_DIR，App 的路径在这里：
+          APP_PATH="build/Release-iphoneos/BookReader.app"
 
           # 验证 .app 存在
           if [ ! -d "$APP_PATH" ]; then
@@ -81,15 +83,14 @@ jobs:
           fi
 
           echo "✅ 找到 App: $APP_PATH"
-          ls -lh "$APP_PATH/"
-
+          
           # 打包 IPA
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           zip -ry BookReader.ipa Payload/
           mv BookReader.ipa ../
 
-          echo "✅ IPA 大小："
+          echo "✅ IPA 打包成功，大小："
           ls -lh ../BookReader.ipa
 
       - name: 📋 失败时显示日志
