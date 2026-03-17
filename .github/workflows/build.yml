@@ -1,0 +1,64 @@
+name: Build Unsigned IPA
+
+# 触发条件：推送到 main 分支，或手动触发
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 📱 构建 IPA
+    runs-on: macos-14     # GitHub 免费提供的 macOS 虚拟机
+    timeout-minutes: 60
+
+    steps:
+      - name: 📥 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 📦 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 📦 安装依赖
+        run: npm ci
+
+      - name: 🔧 生成 iOS 原生工程
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: 📦 安装 CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: 🏗️ 编译（不签名）
+        run: |
+          cd ios
+          xcodebuild build \
+            -workspace BookReader.xcworkspace \
+            -scheme BookReader \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tail -20
+
+      - name: 📦 打包 IPA
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/BookReader.app Payload/
+          zip -r ../BookReader.ipa Payload/
+          echo "✅ IPA 大小："
+          ls -lh ../BookReader.ipa
+
+      - name: 📤 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BookReader-IPA
+          path: BookReader.ipa
+          retention-days: 90
