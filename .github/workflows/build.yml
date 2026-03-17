@@ -35,10 +35,10 @@ jobs:
       - name: 🔍 查看 Xcode 版本
         run: |
           xcodebuild -version
-          xcodeselect -p
+          xcode-select -p  # ✅ 这里已修复
 
       # ========================
-      # ✅ 修复：正确构建流程 archive + export
+      # 标准构建流程
       # ========================
       - name: 🏗️ Archive 构建
         run: |
@@ -52,26 +52,11 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
 
-      - name: 📤 Export 导出无签名 IPA
+      - name: 📦 打包 IPA
         run: |
           cd ios
-          xcodebuild -exportArchive \
-            -archivePath build/BookReader.xcarchive \
-            -exportPath build/IPA \
-            -exportOptionsPlist <(echo '{"method":"ad-hoc","signingStyle":"manual"}') \
-            CODE_SIGNING_ALLOWED=NO
-
-      # ========================
-      # ✅ 修复：自动获取正确的 .app 路径
-      # ========================
-      - name: 📦 打包最终 IPA
-        run: |
-          cd ios
-          APP_PATH=$(find build/BookReader.xcarchive/Products/Applications -name "BookReader.app" | head -1)
-          echo "✅ 找到正确的 App: $APP_PATH"
-
-          ls -la "$APP_PATH"
-          ls -la "$APP_PATH/Info.plist" # 一定会存在
+          APP_PATH="build/BookReader.xcarchive/Products/Applications/BookReader.app"
+          echo "✅ 找到 App: $APP_PATH"
 
           # 打包标准 IPA
           mkdir -p Payload
