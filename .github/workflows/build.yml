@@ -15,22 +15,44 @@ jobs:
       - name: 📥 拉取代码
         uses: actions/checkout@v4
 
+      # ====== 关键修复：切换到兼容的 Xcode 版本 ======
+      - name: 🔧 选择 Xcode 16.1（避免 16.4 的 Swift 6.1 兼容问题）
+        run: |
+          echo "📋 所有可用的 Xcode 版本："
+          ls -d /Applications/Xcode*.app
+
+          # 按优先级选择：16.1 > 16.2 > 16.3（不要 16.4）
+          for ver in 16.1 16.2 16.3; do
+            APP="/Applications/Xcode_${ver}.app"
+            if [ -d "$APP" ]; then
+              sudo xcode-select -s "$APP/Contents/Developer"
+              echo "✅ 已切换到 Xcode ${ver}"
+              break
+            fi
+          done
+
+          echo ""
+          echo "当前 Xcode 版本："
+          xcodebuild -version
+          swift --version
+
       - name: 📦 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 📦 安装依赖并修复 Expo
+      - name: 📦 安装依赖
         run: |
-          # 删掉了清空缓存的命令，直接安装，防断网
+          # 删除旧锁文件，确保拉到兼容版本
+          rm -f package-lock.json
           npm install
-          
-          # 强制更新 expo 以兼容 Xcode 16
           npm install expo@latest
           npx expo install --fix
 
       - name: 🔧 生成 iOS 原生工程
         run: |
+          # 清掉旧的 ios 目录重新生成
+          rm -rf ios
           npx expo prebuild --platform ios --clean --no-install
 
       - name: 📦 安装 CocoaPods
@@ -38,12 +60,7 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: 🔍 查看环境版本
-        run: |
-          xcodebuild -version
-          npm view expo version
-
-      - name: 🏗️ 编译 (使用 DerivedData 避免破坏模块路径)
+      - name: 🏗️ 编译
         run: |
           set -eo pipefail
           cd ios
@@ -59,6 +76,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
+            SWIFT_STRICT_CONCURRENCY=minimal \
             2>&1 | tee ../build.log
 
       - name: 📦 打包 IPA
@@ -69,10 +87,8 @@ jobs:
           APP_PATH="derived_data/Build/Products/Release-iphoneos/BookReader.app"
 
           if [ ! -d "$APP_PATH" ]; then
-            echo "❌ 找不到 BookReader.app，正在全局搜索..."
-            find derived_data -name "*.app" -type d
-            echo ""
-            echo "===== 日志末尾 ====="
+            echo "❌ 找不到 BookReader.app，正在搜索..."
+            find derived_data -name "*.app" -type d 2>/dev/null
             tail -50 ../build.log
             exit 1
           fi
@@ -82,9 +98,8 @@ jobs:
             exit 1
           fi
 
-          echo "✅ 成功找到 App: $APP_PATH"
-          
-          # 打包
+          echo "✅ 找到 App: $APP_PATH"
+
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           zip -ry BookReader.ipa Payload/
@@ -96,8 +111,15 @@ jobs:
       - name: 📋 失败时显示日志
         if: failure()
         run: |
-          echo "===== 编译错误日志 ====="
-          tail -200 build.log 2>/dev/null || echo "没有日志"
+          if [ -f build.log ]; then
+            echo "===== 搜索 Swift 编译错误 ====="
+            grep -n "error:" build.log | head -30
+            echo ""
+            echo "===== 日志末尾 ====="
+            tail -100 build.log
+          else
+            echo "没有编译日志"
+          fi
 
       - name: 📤 上传 IPA
         uses: actions/upload-artifact@v4
